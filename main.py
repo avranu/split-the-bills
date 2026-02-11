@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import enum
 import json
 import logging
 import os
@@ -71,7 +72,7 @@ class AppConfig(BaseModel):
 
     # Behaviour
     timezone: str = Field(default="America/New_York", description="IANA timezone name")
-    excluded_category_name: str = Field(default="Personal Expenses")
+    excluded_category_names: list[str] = Field(default_factory=lambda: ["Personal Expenses"], description="List of category names to exclude from bills")
     include_income: bool = Field(
         default=False,
         description="If true, include income transactions in total.",
@@ -98,9 +99,9 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "jira_issue_type": os.environ.get("JIRA_ISSUE_TYPE", "Task"),
         "jira_assignee_account_id": os.environ.get("JIRA_ASSIGNEE_ACCOUNT_ID", ""),
         "timezone": os.environ.get("APP_TIMEZONE", "America/New_York"),
-        "excluded_category_name": os.environ.get(
-            "EXCLUDED_CATEGORY_NAME", "Personal Expenses"
-        ),
+        "excluded_category_names": [x.strip() for x in os.environ.get(
+            "EXCLUDED_CATEGORY_NAMES", "Personal Expenses"
+        ).split(",")],
         "include_income": os.environ.get("INCLUDE_INCOME", "false").strip().lower()
         in {"1", "true", "yes", "y"},
         "dry_run": dry_run
@@ -149,6 +150,18 @@ class SureTransaction(BaseModel):
     category_name: str | None = None
     category_id: str | None = None
 
+    def __str__(self) -> str:
+        cat = f" in {self.category['name']}" if self.category else ""
+        return f"Transaction ({self.id!r}): {self.amount!r} to {self.name[:20] if self.name else 'unknown'!r}{cat}"
+
+    @classmethod
+    def resolve_category_name(cls, tx: "SureTransaction") -> str | None:
+        """Extract the category name from a transaction."""
+        if tx.category_name:
+            return tx.category_name
+        if tx.category:
+            return tx.category.get("name")
+        return None
 
 class SureTransactionsResponse(BaseModel):
     """Wrapper for paginated Sure transaction responses."""
@@ -291,12 +304,33 @@ class SureClient(TransactionProvider):
         start_date: dt.date,
         end_date_exclusive: dt.date,
         *,
-        page_size: int = 200,
+        page_size: int = 25,
         max_pages: int = 200,
     ) -> list[SureTransaction]:
-        """Fetch transactions for ``[start_date, end_date_exclusive)``."""
+        """
+        Fetch transactions for ``[start_date, end_date_exclusive)``.
+
+        Args:
+            start_date: Inclusive start date.
+            end_date_exclusive: Exclusive end date.
+            page_size: Number of transactions to request per page (Sure may have a max of 25).
+            max_pages: Maximum number of pages to fetch to prevent infinite loops.
+
+        Returns:
+            A list of SureTransaction objects representing the fetched transactions.
+
+        Raises:
+            RuntimeError: If authentication fails or if the API returns an error status.
+            ValidationError: If the API response cannot be parsed into the expected format.
+        """
         url = f"{self._base_url}/api/v1/transactions"
         transactions: list[SureTransaction] = []
+
+        # 2025-02-11: requesting page_size 200 causes unexpected behavior and only 25 items are returned.
+        if page_size > 25:
+            LOGGER.warning(
+                "Sure API may have a max page size of 25. Requested %d.", page_size
+            )
 
         for page in tqdm(
             range(1, max_pages + 1),
@@ -329,16 +363,19 @@ class SureClient(TransactionProvider):
                     raise
 
             if not parsed.transactions:
+                LOGGER.debug("No transactions found on page %d, stopping pagination.", page)
                 break
+
             transactions.extend(parsed.transactions)
 
             if parsed.has_more is False:
+                LOGGER.debug("No more pages after page %d, stopping pagination.", page)
                 break
             if parsed.next_page is None and len(parsed.transactions) < page_size:
+                LOGGER.debug("Fewer transactions (%d) than page size (%d) on page %d, assuming last page.", len(parsed.transactions), page_size, page)
                 break
 
         return transactions
-
 
 class JiraClient(IssueTracker):
     """Client for Jira Cloud REST API v3."""
@@ -421,14 +458,6 @@ class SharedBillsTaskCreator:
         self._issues = issue_tracker
         self._config = config
 
-    def _resolve_category_name(self, tx: SureTransaction) -> str | None:
-        """Extract the category name from a transaction."""
-        if tx.category_name:
-            return tx.category_name
-        if tx.category:
-            return tx.category.get("name")
-        return None
-
     def compute_shared_bills(self, month: MonthRange) -> BillingResult:
         """Sum qualifying transactions and compute the half-split amount."""
         txs = self._transactions.list_transactions(
@@ -440,8 +469,8 @@ class SharedBillsTaskCreator:
         total = Decimal("0")
 
         for tx in tqdm(txs, desc="Summing transactions", unit="tx"):
-            category_name = self._resolve_category_name(tx)
-            if category_name == self._config.excluded_category_name:
+            category_name = SureTransaction.resolve_category_name(tx)
+            if category_name in self._config.excluded_category_names:
                 excluded += 1
                 continue
 
@@ -474,6 +503,38 @@ class SharedBillsTaskCreator:
             included_count=included,
         )
 
+    def list_transactions(self, month: MonthRange) -> list[SureTransaction]:
+        """List transactions for a month, without any filtering."""
+        txs = self._transactions.list_transactions(
+            month.start_date, month.end_date_exclusive
+        )
+
+        results : list[SureTransaction] = []
+
+        for tx in tqdm(txs, desc="Summing transactions", unit="tx"):
+            category_name = SureTransaction.resolve_category_name(tx)
+            if category_name in self._config.excluded_category_names:
+                continue
+
+            classification = (tx.classification or "").strip().lower()
+
+            # Skip income unless explicitly opted-in.
+            if classification == "income" and not self._config.include_income:
+                continue
+
+            if not tx.amount:
+                continue
+
+            # Treat as expense if classification says so OR if classification
+            # is absent/unknown (most transactions are expenses for bills).
+            if classification in {"expense", ""}:
+                results.append(tx)
+            elif self._config.include_income and classification == "income":
+                results.append(tx)
+
+        return results
+                
+
     def create_jira_task(self, result: BillingResult) -> str:
         """Create (or dry-run) a Jira task for the billing result."""
         sym = self._config.currency_symbol
@@ -485,7 +546,7 @@ class SharedBillsTaskCreator:
             f"Month: {result.month_label}\n"
             f"Total (expenses): {sym}{result.total_expenses}\n"
             f"Half: {sym}{result.half_total}\n"
-            f"Excluded category: {self._config.excluded_category_name}\n"
+            f"Excluded categories: {', '.join(self._config.excluded_category_names)}\n"
             f"Included transactions: {result.included_count}\n"
             f"Excluded transactions: {result.excluded_count}\n"
         )
@@ -511,15 +572,27 @@ class SharedBillsTaskCreator:
 # ---------------------------------------------------------------------------
 
 class ArgsType(argparse.Namespace):
+    action: str
     month: str | None
     dry_run: bool
     include_income: bool
     log_level: str
 
+class Actions(enum.Enum):
+    CREATE_ISSUE = "notify"
+    LIST_TRANSACTIONS = "list"
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Create monthly shared-bills Jira task from Sure."
+    )
+    parser.add_argument(
+        "--action",
+        type=str,
+        choices=[v.value for v in Actions],
+        default=Actions.CREATE_ISSUE.value,
+        help="Action to perform.",
     )
     parser.add_argument(
         "--month",
@@ -591,15 +664,21 @@ def main(argv: list[str] | None = None) -> int:
         auth_header=cfg.sure_auth_header,
         auth_prefix=cfg.sure_auth_prefix,
     )
+        
     jira = JiraClient(
         base_url=str(cfg.jira_base_url),
         email=cfg.jira_email,
         api_token=cfg.jira_api_token.get_secret_value(),
     )
-
     runner = SharedBillsTaskCreator(
         transaction_provider=sure, issue_tracker=jira, config=cfg
     )
+    if args.action == Actions.LIST_TRANSACTIONS.value:
+        transactions = runner.list_transactions(mrange)
+        for transaction in transactions:
+            print(transaction)
+        return 0
+    
     result = runner.compute_shared_bills(mrange)
 
     sym = cfg.currency_symbol
