@@ -67,7 +67,7 @@ class AppConfig(BaseModel):
         default="Task", description='Issue type name, default "Task"'
     )
     jira_assignee_account_id: str = Field(
-        ..., description="Jira accountId for the assignee. Find it here: https://jessmann.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username"
+        ..., description="Jira accountId for the assignee. Find it here: https://yourdomain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username"
     )
 
     # Behaviour
@@ -87,6 +87,11 @@ class AppConfig(BaseModel):
 
 def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
     """Load configuration from environment variables."""
+    yes_options = {"1", "true", "yes", "y"}
+    include_income_env = os.environ.get("INCLUDE_INCOME", "false").strip().lower() in yes_options
+    dry_run_env = dry_run or (os.environ.get("DRY_RUN", "false").strip().lower() in yes_options)
+    excluded_categories_env = os.environ.get("EXCLUDED_CATEGORY_NAMES", "Personal Expenses")
+    
     data: dict[str, Any] = {
         "sure_base_url": os.environ.get("SURE_BASE_URL", ""),
         "sure_api_token": os.environ.get("SURE_API_TOKEN", ""),
@@ -100,16 +105,9 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "jira_issue_type": os.environ.get("JIRA_ISSUE_TYPE", "Task"),
         "jira_assignee_account_id": os.environ.get("JIRA_ASSIGNEE_ACCOUNT_ID", ""),
         "timezone": os.environ.get("APP_TIMEZONE", "America/New_York"),
-        "excluded_category_names": [x.strip() for x in os.environ.get(
-            "EXCLUDED_CATEGORY_NAMES", "Personal Expenses"
-        ).split(",")],
-        "include_income": os.environ.get("INCLUDE_INCOME", "false").strip().lower()
-        in {"1", "true", "yes", "y"},
-        "dry_run": dry_run
-        or (
-            os.environ.get("DRY_RUN", "false").strip().lower()
-            in {"1", "true", "yes", "y"}
-        ),
+        "excluded_category_names": [x.strip() for x in excluded_categories_env.split(",")],
+        "include_income": include_income_env,
+        "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
     }
     return AppConfig(**data)
