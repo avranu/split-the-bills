@@ -1,0 +1,11 @@
+[project]
+name = "split-the-bills"
+version = "0.1.0"
+description = "A script to automate splitting monthly bills between two partners. Makes use of Sure and Jira, and can be automated with something like Kestra."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.12.5",
+    "requests>=2.32.5",
+    "tqdm>=4.67.3",
+]
