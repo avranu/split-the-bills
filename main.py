@@ -3,15 +3,10 @@
 
 Flow:
     1. Fetch transactions from Sure for a given month.
-    2. Exclude transactions where category name == "Personal Expenses".
+    2. Exclude transactions within given categories.
     3. Sum expenses and compute half.
-    4. Create a Jira Task assigned to Alyssa.
-
-Auth assumptions:
-    - Sure: API key / token passed as a bearer token (configurable header).
-    - Jira Cloud: Basic auth using email + API token.
+    4. Create a Jira Task assigned to a specific user
 """
-
 from __future__ import annotations
 
 import argparse
@@ -112,11 +107,9 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
     }
     return AppConfig(**data)
 
-
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class MonthRange:
