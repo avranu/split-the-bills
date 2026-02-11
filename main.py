@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import enum
-import json
 import logging
 import os
 import re
@@ -60,6 +59,7 @@ class AppConfig(BaseModel):
     )
     jira_email: str = Field(..., description="Jira user email for API access")
     jira_api_token: SecretStr = Field(..., description="Jira API token")
+    jira_encoded_credentials: SecretStr = Field(..., description="Base64-encoded Jira credentials (email:token)")
     jira_project_key: str = Field(
         ..., description="Jira project key, e.g. HLAB"
     )
@@ -67,7 +67,7 @@ class AppConfig(BaseModel):
         default="Task", description='Issue type name, default "Task"'
     )
     jira_assignee_account_id: str = Field(
-        ..., description="Jira accountId for Alyssa"
+        ..., description="Jira accountId for the assignee. Find it here: https://jessmann.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username"
     )
 
     # Behaviour
@@ -95,6 +95,7 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "jira_base_url": os.environ.get("JIRA_BASE_URL", ""),
         "jira_email": os.environ.get("JIRA_EMAIL", ""),
         "jira_api_token": os.environ.get("JIRA_API_TOKEN", ""),
+        "jira_encoded_credentials": os.environ.get("JIRA_ENCODED_CREDENTIALS", ""),
         "jira_project_key": os.environ.get("JIRA_PROJECT_KEY", ""),
         "jira_issue_type": os.environ.get("JIRA_ISSUE_TYPE", "Task"),
         "jira_assignee_account_id": os.environ.get("JIRA_ASSIGNEE_ACCOUNT_ID", ""),
@@ -154,13 +155,21 @@ class SureTransaction(BaseModel):
         cat = f" in {self.category['name']}" if self.category else ""
         return f"Transaction ({self.id!r}): {self.amount!r} to {self.name[:20] if self.name else 'unknown'!r}{cat}"
 
-    @classmethod
-    def resolve_category_name(cls, tx: "SureTransaction") -> str | None:
-        """Extract the category name from a transaction."""
-        if tx.category_name:
-            return tx.category_name
-        if tx.category:
-            return tx.category.get("name")
+    @staticmethod
+    def resolve_category_name(transaction: "SureTransaction") -> str | None:
+        """
+        Extract the category name from a transaction.
+
+        Args:
+            transaction: The transaction to extract the category name from.
+
+        Returns:
+            The category name if available, otherwise None.
+        """
+        if transaction.category_name:
+            return transaction.category_name
+        if transaction.category:
+            return transaction.category.get("name")
         return None
 
 class SureTransactionsResponse(BaseModel):
@@ -170,11 +179,10 @@ class SureTransactionsResponse(BaseModel):
     next_page: int | None = None
     has_more: bool | None = None
 
-
 @dataclass(frozen=True)
 class BillingResult:
     """Result of computing shared bills for a month."""
-
+    
     month_label: str
     total_expenses: Decimal
     half_total: Decimal
@@ -190,9 +198,16 @@ _AMOUNT_RE = re.compile(r"[^0-9,.\-]+")
 
 
 def parse_localized_money_to_decimal(value: str) -> Decimal:
-    """Parse a localized currency string to a `Decimal`.
+    """
+    Parse a localized currency string to a `Decimal`.
 
-    Handles formats like ``€1.234,56``, ``$1,234.56``, ``-€2.00``.
+    Handles formats like ``$1.234,56``, ``$1,234.56``, ``-$2.00``.
+
+    Args:
+        value: The localized money string to parse.
+
+    Returns:
+        A `Decimal` representing the parsed amount.
     """
     cleaned = _AMOUNT_RE.sub("", value.strip().replace("\u00a0", " "))
 
@@ -217,27 +232,44 @@ def parse_localized_money_to_decimal(value: str) -> Decimal:
         cleaned = cleaned.replace(",", "")
 
     try:
-        return Decimal(cleaned)
+        result = Decimal(cleaned)
     except InvalidOperation as exc:
         raise ValueError(
             f"Unparseable money string: {value!r} -> {cleaned!r}"
         ) from exc
 
+    return result
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def month_range_for(year: int, month: int) -> MonthRange:
-    """Compute the inclusive date range for *year*/*month*."""
+    """
+    Compute the inclusive date range for *year*/*month*.
+
+    Args:
+        year: The year as a four-digit integer, e.g. 2024.
+        month: The month as an integer from 1 (January) to 12 (December).
+
+    Returns:
+        A `MonthRange` object representing the inclusive date range for the specified month.
+    """
     start = dt.date(year, month, 1)
     next_month = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
     return MonthRange(start_date=start, end_date_inclusive=next_month - dt.timedelta(days=1))
 
 
 def previous_month_in_tz(tz: ZoneInfo) -> tuple[int, int]:
-    """Return ``(year, month)`` for the previous calendar month in *tz*."""
+    """
+    Return ``(year, month)`` for the previous calendar month in *tz*.
+
+    Args:
+        tz: The timezone to consider when determining the current date.
+
+    Returns:
+        A tuple of (year, month) for the previous calendar month.
+    """
     today = dt.datetime.now(tz=tz).date()
     first_of_this = dt.date(today.year, today.month, 1)
     last_of_prev = first_of_this - dt.timedelta(days=1)
@@ -343,13 +375,13 @@ class SureClient(TransactionProvider):
                 "page": page,
                 "per_page": page_size,
             }
-            resp = self._session.get(url, params=params, timeout=30)
-            if resp.status_code == 401:
+            response = self._session.get(url, params=params, timeout=30)
+            if response.status_code == 401:
                 raise RuntimeError(
                     "Sure auth failed (401). Check token/header/prefix."
                 )
-            resp.raise_for_status()
-            payload = resp.json()
+            response.raise_for_status()
+            payload = response.json()
 
             try:
                 parsed = SureTransactionsResponse(**payload)
@@ -380,12 +412,12 @@ class SureClient(TransactionProvider):
 class JiraClient(IssueTracker):
     """Client for Jira Cloud REST API v3."""
 
-    def __init__(self, base_url: str, email: str, api_token: str) -> None:
+    def __init__(self, base_url: str, encoded_credentials: str) -> None:
         self._base_url = base_url.rstrip("/")
         self._session = requests.Session()
-        self._session.auth = (email, api_token)
+        header_value = f"Basic {encoded_credentials}"
         self._session.headers.update(
-            {"Accept": "application/json", "Content-Type": "application/json"}
+            {"Accept": "application/json", "Content-Type": "application/json", "Authorization": header_value}
         )
 
     def create_issue(
@@ -397,35 +429,66 @@ class JiraClient(IssueTracker):
         assignee_account_id: str,
         description: str | None = None,
     ) -> str:
-        """Create an issue and return its key."""
+        """
+        Create an issue and return its key.
+
+        Args:
+            project_key: The key of the Jira project, e.g. "HLAB".
+            issue_type: The name of the issue type, e.g. "Task".
+            summary: The issue summary
+            assignee_account_id: The account ID of the assignee (not email; find it here: https://your-domain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username).
+            description: The issue description (optional)
+            
+        Returns:
+            The key of the created issue, e.g. "HLAB-123".
+
+        Raises:
+            RuntimeError: If authentication fails or if the API returns an error status.
+            ValueError: If the API response does not contain the expected issue key.
+        """
         url = f"{self._base_url}/rest/api/3/issue"
+
         fields: dict[str, Any] = {
             "project": {"key": project_key},
             "issuetype": {"name": issue_type},
             "summary": summary,
             "assignee": {"accountId": assignee_account_id},
         }
+        
         if description:
             # Jira Cloud v3 requires Atlassian Document Format (ADF).
             fields["description"] = self._plain_text_to_adf(description)
 
-        resp = self._session.post(
-            url, data=json.dumps({"fields": fields}), timeout=30
-        )
-        if resp.status_code == 401:
+        payload = {"fields": fields}
+
+        response = self._session.post(url, json=payload, timeout=30)
+
+        # Always log error bodies from Jira; they are highly informative.
+        if response.status_code >= 400:
+            LOGGER.error("Jira create issue failed. Status=%s, Url=%s, Fields=%s, Body=%s", response.status_code, url, fields, response.text)
+
+        if response.status_code == 401:
             raise RuntimeError("Jira auth failed (401). Check email/token.")
-        resp.raise_for_status()
-        data = resp.json()
+        response.raise_for_status()
+
+        data = response.json()
         key = data.get("key")
         if not key:
-            raise RuntimeError(
-                f"Jira create issue succeeded but no key returned: {data}"
-            )
+            raise RuntimeError(f"Jira create issue succeeded but no key returned: {data}")
         return str(key)
+
 
     @staticmethod
     def _plain_text_to_adf(text: str) -> dict[str, Any]:
-        """Convert a plain-text string to Atlassian Document Format."""
+        """
+        Convert a plain-text string to Atlassian Document Format.
+
+        Args:
+            text: The plain text to convert.
+
+        Returns:
+            A dict representing the text in Atlassian Document Format.
+        """
         paragraphs: list[dict[str, Any]] = []
         for line in text.split("\n"):
             if line:
@@ -459,8 +522,16 @@ class SharedBillsTaskCreator:
         self._config = config
 
     def compute_shared_bills(self, month: MonthRange) -> BillingResult:
-        """Sum qualifying transactions and compute the half-split amount."""
-        txs = self._transactions.list_transactions(
+        """
+        Sum qualifying transactions and compute the half-split amount.
+
+        Args:
+            month: The MonthRange for which to compute the bills.
+
+        Returns:
+            A BillingResult containing the total expenses, half total, and counts of included/excluded transactions.
+        """
+        transactions = self._transactions.list_transactions(
             month.start_date, month.end_date_exclusive
         )
 
@@ -468,22 +539,22 @@ class SharedBillsTaskCreator:
         included = 0
         total = Decimal("0")
 
-        for tx in tqdm(txs, desc="Summing transactions", unit="tx"):
-            category_name = SureTransaction.resolve_category_name(tx)
+        for transaction in tqdm(transactions, desc="Summing transactions", unit="tx"):
+            category_name = SureTransaction.resolve_category_name(transaction)
             if category_name in self._config.excluded_category_names:
                 excluded += 1
                 continue
 
-            classification = (tx.classification or "").strip().lower()
+            classification = (transaction.classification or "").strip().lower()
 
             # Skip income unless explicitly opted-in.
             if classification == "income" and not self._config.include_income:
                 continue
 
-            if not tx.amount:
+            if not transaction.amount:
                 continue
 
-            amount_abs = parse_localized_money_to_decimal(tx.amount).copy_abs()
+            amount_abs = parse_localized_money_to_decimal(transaction.amount).copy_abs()
 
             # Treat as expense if classification says so OR if classification
             # is absent/unknown (most transactions are expenses for bills).
@@ -504,51 +575,65 @@ class SharedBillsTaskCreator:
         )
 
     def list_transactions(self, month: MonthRange) -> list[SureTransaction]:
-        """List transactions for a month, without any filtering."""
-        txs = self._transactions.list_transactions(
+        """
+        List transactions for a month, without any filtering.
+
+        Args:
+            month: The MonthRange for which to list transactions.
+
+        Returns:
+            A list of SureTransaction objects for the specified month, excluding only those that match the excluded categories.
+        """
+        transactions = self._transactions.list_transactions(
             month.start_date, month.end_date_exclusive
         )
 
         results : list[SureTransaction] = []
 
-        for tx in tqdm(txs, desc="Summing transactions", unit="tx"):
-            category_name = SureTransaction.resolve_category_name(tx)
+        for transaction in tqdm(transactions, desc="Listing transactions", unit="tx"):
+            category_name = SureTransaction.resolve_category_name(transaction)
             if category_name in self._config.excluded_category_names:
                 continue
 
-            classification = (tx.classification or "").strip().lower()
+            classification = (transaction.classification or "").strip().lower()
 
             # Skip income unless explicitly opted-in.
             if classification == "income" and not self._config.include_income:
                 continue
 
-            if not tx.amount:
+            if not transaction.amount:
                 continue
 
             # Treat as expense if classification says so OR if classification
             # is absent/unknown (most transactions are expenses for bills).
             if classification in {"expense", ""}:
-                results.append(tx)
+                results.append(transaction)
             elif self._config.include_income and classification == "income":
-                results.append(tx)
+                results.append(transaction)
 
         return results
                 
 
     def create_jira_task(self, result: BillingResult) -> str:
-        """Create (or dry-run) a Jira task for the billing result."""
-        sym = self._config.currency_symbol
+        """
+        Create (or dry-run) a Jira task for the billing result.
+
+        Args:
+            result: The BillingResult containing the computed totals and counts.
+
+        Returns:
+            The key of the created Jira issue, or "DRY_RUN" if in dry-run mode.
+        """
+        currency_symbol = self._config.currency_symbol
         summary = (
-            f"Pay shared bills for {result.month_label}: {sym}{result.half_total}"
+            f"Pay shared bills for {result.month_label}: {currency_symbol}{result.half_total}"
         )
         description = (
-            f"Auto-created from Sure.\n\n"
-            f"Month: {result.month_label}\n"
-            f"Total (expenses): {sym}{result.total_expenses}\n"
-            f"Half: {sym}{result.half_total}\n"
+            f"Calculated from our budgeting app for {result.month_label}.\n\n"
+            f"Total (expenses): {currency_symbol}{result.total_expenses}\n"
+            f"Half: {currency_symbol}{result.half_total}\n"
             f"Excluded categories: {', '.join(self._config.excluded_category_names)}\n"
-            f"Included transactions: {result.included_count}\n"
-            f"Excluded transactions: {result.excluded_count}\n"
+            f"Transactions: {result.included_count} included / {result.excluded_count} excluded\n"
         )
 
         if self._config.dry_run:
@@ -583,14 +668,19 @@ class Actions(enum.Enum):
     LIST_TRANSACTIONS = "list"
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
+    """
+    Build the CLI argument parser.
+
+    Returns:
+        An argparse.ArgumentParser instance configured with the expected command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Create monthly shared-bills Jira task from Sure."
     )
     parser.add_argument(
         "--action",
         type=str,
-        choices=[v.value for v in Actions],
+        choices=[a.value for a in Actions],
         default=Actions.CREATE_ISSUE.value,
         help="Action to perform.",
     )
@@ -647,7 +737,7 @@ def main(argv: list[str] | None = None) -> int:
             year_s, month_s = args.month.split("-", 1)
             year, month = int(year_s), int(month_s)
             if not 1 <= month <= 12:
-                raise ValueError("month must be 1..12")
+                raise ValueError("month must be between 1 and 12")
         except Exception as exc:
             LOGGER.error(
                 "Invalid --month %r (expected YYYY-MM): %s", args.month, exc
@@ -667,8 +757,7 @@ def main(argv: list[str] | None = None) -> int:
         
     jira = JiraClient(
         base_url=str(cfg.jira_base_url),
-        email=cfg.jira_email,
-        api_token=cfg.jira_api_token.get_secret_value(),
+        encoded_credentials=cfg.jira_encoded_credentials.get_secret_value(),
     )
     runner = SharedBillsTaskCreator(
         transaction_provider=sure, issue_tracker=jira, config=cfg
