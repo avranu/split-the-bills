@@ -13,19 +13,30 @@ This project is a small Python CLI designed to run manually or on a schedule (fo
 
 ## Table of contents
 
-- [Features](#features)
-- [How it works](#how-it-works)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Examples](#examples)
-- [Exit codes](#exit-codes)
-- [Development](#development)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
-- [Security notes](#security-notes)
-- [Roadmap ideas](#roadmap-ideas)
+- [split-the-bills](#split-the-bills)
+  - [Table of contents](#table-of-contents)
+  - [Features](#features)
+  - [How it works](#how-it-works)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+    - [Option A (recommended): `uv`](#option-a-recommended-uv)
+    - [Option B: standard `pip`](#option-b-standard-pip)
+  - [Configuration](#configuration)
+    - [Required variables](#required-variables)
+    - [Optional variables](#optional-variables)
+  - [Usage](#usage)
+    - [CLI options](#cli-options)
+  - [Examples](#examples)
+    - [1) Preview current behavior without creating Jira issue](#1-preview-current-behavior-without-creating-jira-issue)
+    - [2) Process a specific month](#2-process-a-specific-month)
+    - [3) Inspect included transactions](#3-inspect-included-transactions)
+    - [4) Include income in calculation](#4-include-income-in-calculation)
+  - [Exit codes](#exit-codes)
+  - [Development](#development)
+  - [Testing](#testing)
+  - [Troubleshooting](#troubleshooting)
+- [Known Issues](#known-issues)
+  - [TODOs](#todos)
 
 ---
 
@@ -105,29 +116,29 @@ Then set environment variables (or export them in your shell / secret manager).
 
 ### Required variables
 
-| Variable | Description |
-|---|---|
-| `SURE_BASE_URL` | Sure base URL (e.g. `https://sure.yourdomain.com`) |
-| `SURE_API_TOKEN` | Sure API token |
-| `JIRA_BASE_URL` | Jira base URL (e.g. `https://your-org.atlassian.net`) |
-| `JIRA_EMAIL` | Jira email (used for API identity) |
-| `JIRA_API_TOKEN` | Jira API token |
-| `JIRA_ENCODED_CREDENTIALS` | Base64 of `email:api_token` |
-| `JIRA_PROJECT_KEY` | Jira project key (e.g. `BUDG`) |
-| `JIRA_ASSIGNEE_ACCOUNT_ID` | Jira assignee account ID |
+| Variable                   | Description                                           |
+| -------------------------- | ----------------------------------------------------- |
+| `SURE_BASE_URL`            | Sure base URL (e.g. `https://sure.yourdomain.com`)    |
+| `SURE_API_TOKEN`           | Sure API token                                        |
+| `JIRA_BASE_URL`            | Jira base URL (e.g. `https://your-org.atlassian.net`) |
+| `JIRA_EMAIL`               | Jira email (used for API identity)                    |
+| `JIRA_API_TOKEN`           | Jira API token                                        |
+| `JIRA_ENCODED_CREDENTIALS` | Base64 of `email:api_token`                           |
+| `JIRA_PROJECT_KEY`         | Jira project key (e.g. `BUDG`)                        |
+| `JIRA_ASSIGNEE_ACCOUNT_ID` | Jira assignee account ID                              |
 
 ### Optional variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `SURE_AUTH_HEADER` | `Authorization` | Sure auth header name |
-| `SURE_AUTH_PREFIX` | `Bearer` | Sure auth token prefix |
-| `JIRA_ISSUE_TYPE` | `Task` | Jira issue type |
-| `APP_TIMEZONE` | `America/New_York` | IANA timezone name |
-| `EXCLUDED_CATEGORY_NAMES` | `Personal Expenses` | Comma-separated category names to exclude |
-| `INCLUDE_INCOME` | `false` | Include income transactions in the total |
-| `DRY_RUN` | `false` | Compute values but skip Jira issue creation |
-| `CURRENCY_SYMBOL` | `$` | Symbol used in Jira summary/description |
+| Variable                  | Default             | Description                                 |
+| ------------------------- | ------------------- | ------------------------------------------- |
+| `SURE_AUTH_HEADER`        | `Authorization`     | Sure auth header name                       |
+| `SURE_AUTH_PREFIX`        | `Bearer`            | Sure auth token prefix                      |
+| `JIRA_ISSUE_TYPE`         | `Task`              | Jira issue type                             |
+| `APP_TIMEZONE`            | `America/New_York`  | IANA timezone name                          |
+| `EXCLUDED_CATEGORY_NAMES` | `Personal Expenses` | Comma-separated category names to exclude   |
+| `INCLUDE_INCOME`          | `false`             | Include income transactions in the total    |
+| `DRY_RUN`                 | `false`             | Compute values but skip Jira issue creation |
+| `CURRENCY_SYMBOL`         | `$`                 | Symbol used in Jira summary/description     |
 
 > Note: The code reads `EXCLUDED_CATEGORY_NAMES` (plural, comma-separated).
 
@@ -248,18 +259,18 @@ Tests cover:
 
 ---
 
-## Security notes
+# Known Issues
+- Sure API may have a max page size of 25. Requesting more may cause unexpected behavior.
+- parse_localized_money_to_decimal("£1,000") returns 1.000
 
-- Treat `.env` as sensitive; never commit real secrets.
-- Prefer secret managers in CI/schedulers.
-- Rotate API tokens periodically.
-
----
-
-## Roadmap ideas
-
+## TODOs
+- Pydantic validation
+- Additional unit tests
+- CI/CD pipeline (unit tests, ruff, mypy)
+- Full readme
+- Expand error handling and edge cases
+- Reduce pylint suppressions
 - Stronger config validation and friendlier startup diagnostics.
 - Expanded test coverage around API error handling.
-- CI pipeline for lint + tests.
 - Packaging/release workflow.
 - Optional duplicate-issue detection in Jira.
