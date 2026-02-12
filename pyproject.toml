@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = ["pydantic==2.12.5", "requests==2.32.5", "tqdm==4.67.3"]
 
 [dependency-groups]
-dev = ["pytest>=9.0.2"]
+dev = ["pylint>=4.0.4", "pytest>=9.0.2"]
 
 
 [tool.pylint."messages control"]
@@ -31,32 +31,17 @@ confidence = [
 # no Warning level messages displayed, use "--disable=all --enable=classes
 # --disable=W".
 disable = [
-    "raw-checker-failed",
-    "bad-inline-option",
-    "locally-disabled",
-    "file-ignored",
-    "suppressed-message",
-    "useless-suppression",
-    "deprecated-pragma",
-    "use-symbolic-message-instead",
     "missing-function-docstring",
-    "pointless-string-statement",
-    "multiple-imports",
-    "missing-final-newline",
     "too-few-public-methods",
-    "too-many-lines",
     "broad-exception-caught",
-    "invalid-name",
-    "logging-fstring-interpolation",
-    "too-many-ancestors",
     "too-many-public-methods",
     "too-many-arguments",
     "trailing-newlines",
-    "too-many-instance-attributes",
-    "unnecessary-pass",
     "line-too-long",
     "trailing-whitespace",
     "too-many-locals",
+    "fixme",
+    "no-member",
 ]
 
 

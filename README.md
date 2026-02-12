@@ -16,6 +16,7 @@ A script to automate splitting monthly bills between two partners. Makes use of 
 # TODOs
 - Pydantic validation
 - Additional unit tests
-- CI/CD pipeline
+- CI/CD pipeline (unit tests, ruff, mypy)
 - Full readme
 - Expand error handling and edge cases
+- Reduce pylint suppressions

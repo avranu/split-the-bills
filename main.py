@@ -135,14 +135,17 @@ class MonthRange:
 
     @property
     def end_date_exclusive(self) -> dt.date:
+        """Exclusive end date, i.e. the day after the last day of the month."""
         return self.end_date_inclusive + dt.timedelta(days=1)
 
     @property
     def label(self) -> str:
+        """Human-friendly month label, e.g. "January 2024"."""
         return self.start_date.strftime("%B %Y")
 
     @property
     def year_month(self) -> str:
+        """Year-month string for API queries, e.g. "2024-01"."""
         return self.start_date.strftime("%Y-%m")
 
 
