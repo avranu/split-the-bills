@@ -203,6 +203,29 @@ class TestSharedBillsTaskCreator:
         assert result.half_total == Decimal("75.00")
         assert result.included_count == 2
         assert result.excluded_count == 0
+        assert result.paid_by_other_total == Decimal("0.00")
+        assert result.paid_by_other_count == 0
+
+    def test_paid_by_other_partner_tag_adjusts_half_owed(self) -> None:
+        txs = [
+            SureTransaction(id="1", classification="expense", amount="$2000.00"),
+            SureTransaction(
+                id="2",
+                classification="expense",
+                amount="$800.00",
+                tags=["Paid by other partner"],
+            ),
+        ]
+        provider = FakeTransactionProvider(txs)
+        tracker = FakeIssueTracker()
+        cfg = _make_config()
+        creator = SharedBillsTaskCreator(provider, tracker, cfg)
+        result = creator.compute_shared_bills(month_range_for(2026, 1))
+
+        assert result.total_expenses == Decimal("2800.00")
+        assert result.half_total == Decimal("600.00")
+        assert result.paid_by_other_total == Decimal("800.00")
+        assert result.paid_by_other_count == 1
 
     def test_excludes_personal_expenses(self) -> None:
         txs = [
@@ -295,9 +318,11 @@ class TestSharedBillsTaskCreator:
         billing = BillingResult(
             month_label="January 2026",
             total_expenses=Decimal("200.00"),
+            paid_by_other_total=Decimal("0.00"),
             half_total=Decimal("100.00"),
             excluded_count=1,
             included_count=3,
+            paid_by_other_count=0,
         )
         key = creator.create_jira_task(billing)
 
@@ -316,9 +341,11 @@ class TestSharedBillsTaskCreator:
         billing = BillingResult(
             month_label="January 2026",
             total_expenses=Decimal("200.00"),
+            paid_by_other_total=Decimal("0.00"),
             half_total=Decimal("100.00"),
             excluded_count=0,
             included_count=2,
+            paid_by_other_count=0,
         )
         key = creator.create_jira_task(billing)
 
@@ -336,3 +363,5 @@ class TestSharedBillsTaskCreator:
         assert result.half_total == Decimal("0.00")
         assert result.included_count == 0
         assert result.excluded_count == 0
+        assert result.paid_by_other_total == Decimal("0.00")
+        assert result.paid_by_other_count == 0

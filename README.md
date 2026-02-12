@@ -46,6 +46,7 @@ This project is a small Python CLI designed to run manually or on a schedule (fo
 - Supports custom auth header/prefix for Sure deployments.
 - Excludes categories such as `Personal Expenses`.
 - Optionally includes income transactions.
+- Supports a configurable tag for expenses fully paid by the other partner, which reduces the amount owed.
 - Parses localized currency formats into precise `Decimal` values.
 - Creates Jira issues with computed totals and contextual details.
 - Supports dry-run mode to safely validate behavior.
@@ -61,7 +62,7 @@ For a target month (explicit via CLI or defaulting to the **previous month** in 
 2. Keeps transactions classified as `expense` (and optionally `income`).
 3. Excludes any transaction whose category matches configured excluded categories.
 4. Sums included transaction amounts.
-5. Computes half (`total / 2`).
+5. Computes half and then subtracts any expenses tagged as fully paid by the other partner.
 6. Creates a Jira issue with a summary like:
    - `Pay shared bills for January 2026: $123.45`
 
@@ -139,6 +140,7 @@ Then set environment variables (or export them in your shell / secret manager).
 | `INCLUDE_INCOME`          | `false`             | Include income transactions in the total    |
 | `DRY_RUN`                 | `false`             | Compute values but skip Jira issue creation |
 | `CURRENCY_SYMBOL`         | `$`                 | Symbol used in Jira summary/description     |
+| `FULLY_PAID_BY_OTHER_TAG` | `Paid by other partner` | Tag name used to mark expenses fully paid by the other partner |
 
 > Note: The code reads `EXCLUDED_CATEGORY_NAMES` (plural, comma-separated).
 
