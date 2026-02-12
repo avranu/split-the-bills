@@ -142,8 +142,6 @@ Then set environment variables (or export them in your shell / secret manager).
 | `CURRENCY_SYMBOL`         | `$`                 | Symbol used in Jira summary/description           |
 | `PAID_BY_PARTNER_TAG`     | `Paid by partner`   | Tag name marks expenses fully paid by the partner |
 
-> Note: The code reads `EXCLUDED_CATEGORY_NAMES` (plural, comma-separated).
-
 ---
 
 ## Usage
