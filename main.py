@@ -84,7 +84,7 @@ class AppConfig(BaseModel):
         default="$", description="Currency symbol used in the Jira title."
     )
     fully_paid_by_other_tag: str = Field(
-        default="Paid by other partner",
+        default="Paid by partner",
         description="Tag name indicating a shared expense fully paid by the other partner.",
     )
 
@@ -122,7 +122,7 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
         "fully_paid_by_other_tag": os.environ.get(
-            "FULLY_PAID_BY_OTHER_TAG", "Paid by other partner"
+            "FULLY_PAID_BY_OTHER_TAG", "Paid by partner"
         ),
     }
     return AppConfig(**data)
@@ -200,7 +200,7 @@ class SureTransaction(BaseModel):
             if isinstance(tag, str) and tag.strip().lower() == normalized_target:
                 return True
             if isinstance(tag, dict):
-                candidate = str(tag.get("name", "")).strip().lower()
+                candidate = str(tag.get("name", "")).strip().lower() # pyright: ignore (unkown type is converted to str)
                 if candidate == normalized_target:
                     return True
         return False
@@ -693,11 +693,10 @@ class SharedBillsTaskCreator:
         currency_symbol = self._config.currency_symbol
         summary = f"Pay shared bills for {result.month_label}: {currency_symbol}{result.half_total}"
         description = (
-            f"Calculated from our budgeting app for {result.month_label}.\n\n"
-            f"Total (expenses): {currency_symbol}{result.total_expenses}\n"
-            f"Fully paid by other partner ({self._config.fully_paid_by_other_tag}): "
-            f"{currency_symbol}{result.paid_by_other_total} across {result.paid_by_other_count} transactions\n"
-            f"Half: {currency_symbol}{result.half_total}\n"
+            f"Calculated for {result.month_label}.\n\n"
+            f"Total: {currency_symbol}{result.total_expenses}\n"
+            f"Fully paid: {currency_symbol}{result.paid_by_other_total} across {result.paid_by_other_count} transactions\n"
+            f"Remaining Half: {currency_symbol}{result.half_total}\n"
             f"Excluded categories: {', '.join(self._config.excluded_category_names)}\n"
             f"Transactions: {result.included_count} included / {result.excluded_count} excluded\n"
         )
