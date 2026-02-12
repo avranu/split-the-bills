@@ -7,7 +7,7 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
-
+from zoneinfo import ZoneInfo
 import pytest
 
 # Import from the main module – adjust the import path to match your filename.
@@ -23,8 +23,6 @@ from main import (
     parse_localized_money_to_decimal,
     previous_month_in_tz,
 )
-from zoneinfo import ZoneInfo
-
 
 # --------------------------------------------------------------------------
 # parse_localized_money_to_decimal
@@ -46,7 +44,7 @@ class TestParseLocalizedMoney:
             ("£1,000.00", Decimal("1000")),
             ("3.456,78", Decimal("3456.78")),
             # TODO: Fails:
-            #("£1,000", Decimal("1000")),
+            # ("£1,000", Decimal("1000")),
         ],
     )
     def test_valid_strings(self, raw: str, expected: Decimal) -> None:
@@ -97,9 +95,7 @@ class TestPreviousMonth:
     def test_basic(self) -> None:
         tz = ZoneInfo("UTC")
         with patch("main.dt") as mock_dt:
-            mock_dt.datetime.now.return_value = dt.datetime(
-                2026, 3, 15, tzinfo=tz
-            )
+            mock_dt.datetime.now.return_value = dt.datetime(2026, 3, 15, tzinfo=tz)
             mock_dt.date = dt.date
             mock_dt.timedelta = dt.timedelta
             y, m = previous_month_in_tz(tz)
@@ -113,14 +109,18 @@ class TestPreviousMonth:
 
 class TestJiraAdf:
     def test_plain_text_to_adf(self) -> None:
-        adf = JiraClient._plain_text_to_adf("Hello\nWorld") # pyright: ignore[reportPrivateUsage]
+        adf = JiraClient._plain_text_to_adf( # pyright: ignore[reportPrivateUsage]
+            "Hello\nWorld"
+        ) 
         assert adf["type"] == "doc"
         assert adf["version"] == 1
         assert len(adf["content"]) == 2
         assert adf["content"][0]["content"][0]["text"] == "Hello"
 
     def test_empty_lines(self) -> None:
-        adf = JiraClient._plain_text_to_adf("A\n\nB") # pyright: ignore[reportPrivateUsage]
+        adf = JiraClient._plain_text_to_adf( # pyright: ignore[reportPrivateUsage]
+            "A\n\nB"
+        ) 
         assert len(adf["content"]) == 3
         assert adf["content"][1]["content"] == []
 
@@ -157,7 +157,7 @@ class FakeIssueTracker(IssueTracker):
         assignee_account_id: str,
         description: str | None = None,
     ) -> str:
-        record : dict[str, Any] = {
+        record: dict[str, Any] = {
             "project_key": project_key,
             "issue_type": issue_type,
             "summary": summary,
@@ -189,12 +189,8 @@ class TestSharedBillsTaskCreator:
 
     def test_basic_expense_sum(self) -> None:
         txs = [
-            SureTransaction(
-                id="1", classification="expense", amount="$100.00"
-            ),
-            SureTransaction(
-                id="2", classification="expense", amount="$50.00"
-            ),
+            SureTransaction(id="1", classification="expense", amount="$100.00"),
+            SureTransaction(id="2", classification="expense", amount="$50.00"),
         ]
         provider = FakeTransactionProvider(txs)
         tracker = FakeIssueTracker()
@@ -216,9 +212,7 @@ class TestSharedBillsTaskCreator:
                 amount="$100.00",
                 category_name="Personal Expenses",
             ),
-            SureTransaction(
-                id="2", classification="expense", amount="$60.00"
-            ),
+            SureTransaction(id="2", classification="expense", amount="$60.00"),
         ]
         provider = FakeTransactionProvider(txs)
         tracker = FakeIssueTracker()
@@ -240,9 +234,7 @@ class TestSharedBillsTaskCreator:
                 amount="$200.00",
                 category={"name": "Personal Expenses", "id": "42"},
             ),
-            SureTransaction(
-                id="2", classification="expense", amount="$80.00"
-            ),
+            SureTransaction(id="2", classification="expense", amount="$80.00"),
         ]
         provider = FakeTransactionProvider(txs)
         tracker = FakeIssueTracker()
@@ -255,12 +247,8 @@ class TestSharedBillsTaskCreator:
 
     def test_income_excluded_by_default(self) -> None:
         txs = [
-            SureTransaction(
-                id="1", classification="expense", amount="$100.00"
-            ),
-            SureTransaction(
-                id="2", classification="income", amount="$500.00"
-            ),
+            SureTransaction(id="1", classification="expense", amount="$100.00"),
+            SureTransaction(id="2", classification="income", amount="$500.00"),
         ]
         provider = FakeTransactionProvider(txs)
         tracker = FakeIssueTracker()
@@ -273,12 +261,8 @@ class TestSharedBillsTaskCreator:
 
     def test_income_included_when_opted_in(self) -> None:
         txs = [
-            SureTransaction(
-                id="1", classification="expense", amount="$100.00"
-            ),
-            SureTransaction(
-                id="2", classification="income", amount="$500.00"
-            ),
+            SureTransaction(id="1", classification="expense", amount="$100.00"),
+            SureTransaction(id="2", classification="income", amount="$500.00"),
         ]
         provider = FakeTransactionProvider(txs)
         tracker = FakeIssueTracker()

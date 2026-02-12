@@ -7,18 +7,19 @@ Flow:
     3. Sum expenses and compute half.
     4. Create a Jira Task assigned to a specific user
 """
+
 from __future__ import annotations
 
-import argparse
+from typing import Any
+import os
+import re
 import datetime as dt
 import enum
 import logging
-import os
-import re
+import argparse
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
 from zoneinfo import ZoneInfo
 import requests
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, ValidationError
@@ -54,20 +55,24 @@ class AppConfig(BaseModel):
     )
     jira_email: str = Field(..., description="Jira user email for API access")
     jira_api_token: SecretStr = Field(..., description="Jira API token")
-    jira_encoded_credentials: SecretStr = Field(..., description="Base64-encoded Jira credentials (email:token)")
-    jira_project_key: str = Field(
-        ..., description="Jira project key, e.g. HLAB"
+    jira_encoded_credentials: SecretStr = Field(
+        ..., description="Base64-encoded Jira credentials (email:token)"
     )
+    jira_project_key: str = Field(..., description="Jira project key, e.g. HLAB")
     jira_issue_type: str = Field(
         default="Task", description='Issue type name, default "Task"'
     )
     jira_assignee_account_id: str = Field(
-        ..., description="Jira accountId for the assignee. Find it here: https://yourdomain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username"
+        ...,
+        description="Jira accountId for the assignee. Find it here: https://yourdomain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username",
     )
 
     # Behaviour
     timezone: str = Field(default="America/New_York", description="IANA timezone name")
-    excluded_category_names: list[str] = Field(default_factory=lambda: ["Personal Expenses"], description="List of category names to exclude from bills")
+    excluded_category_names: list[str] = Field(
+        default_factory=lambda: ["Personal Expenses"],
+        description="List of category names to exclude from bills",
+    )
     include_income: bool = Field(
         default=False,
         description="If true, include income transactions in total.",
@@ -83,10 +88,16 @@ class AppConfig(BaseModel):
 def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
     """Load configuration from environment variables."""
     yes_options = {"1", "true", "yes", "y"}
-    include_income_env = os.environ.get("INCLUDE_INCOME", "false").strip().lower() in yes_options
-    dry_run_env = dry_run or (os.environ.get("DRY_RUN", "false").strip().lower() in yes_options)
-    excluded_categories_env = os.environ.get("EXCLUDED_CATEGORY_NAMES", "Personal Expenses")
-    
+    include_income_env = (
+        os.environ.get("INCLUDE_INCOME", "false").strip().lower() in yes_options
+    )
+    dry_run_env = dry_run or (
+        os.environ.get("DRY_RUN", "false").strip().lower() in yes_options
+    )
+    excluded_categories_env = os.environ.get(
+        "EXCLUDED_CATEGORY_NAMES", "Personal Expenses"
+    )
+
     data: dict[str, Any] = {
         "sure_base_url": os.environ.get("SURE_BASE_URL", ""),
         "sure_api_token": os.environ.get("SURE_API_TOKEN", ""),
@@ -100,16 +111,20 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "jira_issue_type": os.environ.get("JIRA_ISSUE_TYPE", "Task"),
         "jira_assignee_account_id": os.environ.get("JIRA_ASSIGNEE_ACCOUNT_ID", ""),
         "timezone": os.environ.get("APP_TIMEZONE", "America/New_York"),
-        "excluded_category_names": [x.strip() for x in excluded_categories_env.split(",")],
+        "excluded_category_names": [
+            x.strip() for x in excluded_categories_env.split(",")
+        ],
         "include_income": include_income_env,
         "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
     }
     return AppConfig(**data)
 
+
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class MonthRange:
@@ -163,6 +178,7 @@ class SureTransaction(BaseModel):
             return transaction.category.get("name")
         return None
 
+
 class SureTransactionsResponse(BaseModel):
     """Wrapper for paginated Sure transaction responses."""
 
@@ -170,10 +186,11 @@ class SureTransactionsResponse(BaseModel):
     next_page: int | None = None
     has_more: bool | None = None
 
+
 @dataclass(frozen=True)
 class BillingResult:
     """Result of computing shared bills for a month."""
-    
+
     month_label: str
     total_expenses: Decimal
     half_total: Decimal
@@ -225,15 +242,15 @@ def parse_localized_money_to_decimal(value: str) -> Decimal:
     try:
         result = Decimal(cleaned)
     except InvalidOperation as exc:
-        raise ValueError(
-            f"Unparseable money string: {value!r} -> {cleaned!r}"
-        ) from exc
+        raise ValueError(f"Unparseable money string: {value!r} -> {cleaned!r}") from exc
 
     return result
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def month_range_for(year: int, month: int) -> MonthRange:
     """
@@ -248,7 +265,9 @@ def month_range_for(year: int, month: int) -> MonthRange:
     """
     start = dt.date(year, month, 1)
     next_month = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
-    return MonthRange(start_date=start, end_date_inclusive=next_month - dt.timedelta(days=1))
+    return MonthRange(
+        start_date=start, end_date_inclusive=next_month - dt.timedelta(days=1)
+    )
 
 
 def previous_month_in_tz(tz: ZoneInfo) -> tuple[int, int]:
@@ -280,8 +299,7 @@ class TransactionProvider(ABC):
         self,
         start_date: dt.date,
         end_date_exclusive: dt.date,
-    ) -> list[SureTransaction]:
-        ...
+    ) -> list[SureTransaction]: ...
 
 
 class IssueTracker(ABC):
@@ -296,8 +314,7 @@ class IssueTracker(ABC):
         summary: str,
         assignee_account_id: str,
         description: str | None = None,
-    ) -> str:
-        ...
+    ) -> str: ...
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +385,7 @@ class SureClient(TransactionProvider):
             }
             response = self._session.get(url, params=params, timeout=30)
             if response.status_code == 401:
-                raise RuntimeError(
-                    "Sure auth failed (401). Check token/header/prefix."
-                )
+                raise RuntimeError("Sure auth failed (401). Check token/header/prefix.")
             response.raise_for_status()
             payload = response.json()
 
@@ -379,14 +394,18 @@ class SureClient(TransactionProvider):
             except ValidationError:
                 if isinstance(payload, list):
                     parsed = SureTransactionsResponse(
-                        transactions=[SureTransaction(**t) for t in payload] # pyright: ignore
+                        transactions=[
+                            SureTransaction(**t) for t in payload # pyright: ignore
+                        ]  
                     )
                     # TODO: Temporarily ignore type issue. In the future, validate/enforce payload type
                 else:
                     raise
 
             if not parsed.transactions:
-                LOGGER.debug("No transactions found on page %d, stopping pagination.", page)
+                LOGGER.debug(
+                    "No transactions found on page %d, stopping pagination.", page
+                )
                 break
 
             transactions.extend(parsed.transactions)
@@ -395,10 +414,16 @@ class SureClient(TransactionProvider):
                 LOGGER.debug("No more pages after page %d, stopping pagination.", page)
                 break
             if parsed.next_page is None and len(parsed.transactions) < page_size:
-                LOGGER.debug("Fewer transactions (%d) than page size (%d) on page %d, assuming last page.", len(parsed.transactions), page_size, page)
+                LOGGER.debug(
+                    "Fewer transactions (%d) than page size (%d) on page %d, assuming last page.",
+                    len(parsed.transactions),
+                    page_size,
+                    page,
+                )
                 break
 
         return transactions
+
 
 class JiraClient(IssueTracker):
     """Client for Jira Cloud REST API v3."""
@@ -408,7 +433,11 @@ class JiraClient(IssueTracker):
         self._session = requests.Session()
         header_value = f"Basic {encoded_credentials}"
         self._session.headers.update(
-            {"Accept": "application/json", "Content-Type": "application/json", "Authorization": header_value}
+            {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": header_value,
+            }
         )
 
     def create_issue(
@@ -429,7 +458,7 @@ class JiraClient(IssueTracker):
             summary: The issue summary
             assignee_account_id: The account ID of the assignee (not email; find it here: https://your-domain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username).
             description: The issue description (optional)
-            
+
         Returns:
             The key of the created issue, e.g. "HLAB-123".
 
@@ -445,7 +474,7 @@ class JiraClient(IssueTracker):
             "summary": summary,
             "assignee": {"accountId": assignee_account_id},
         }
-        
+
         if description:
             # Jira Cloud v3 requires Atlassian Document Format (ADF).
             fields["description"] = self._plain_text_to_adf(description)
@@ -456,7 +485,13 @@ class JiraClient(IssueTracker):
 
         # Always log error bodies from Jira; they are highly informative.
         if response.status_code >= 400:
-            LOGGER.error("Jira create issue failed. Status=%s, Url=%s, Fields=%s, Body=%s", response.status_code, url, fields, response.text)
+            LOGGER.error(
+                "Jira create issue failed. Status=%s, Url=%s, Fields=%s, Body=%s",
+                response.status_code,
+                url,
+                fields,
+                response.text,
+            )
 
         if response.status_code == 401:
             raise RuntimeError("Jira auth failed (401). Check email/token.")
@@ -465,9 +500,10 @@ class JiraClient(IssueTracker):
         data = response.json()
         key = data.get("key")
         if not key:
-            raise RuntimeError(f"Jira create issue succeeded but no key returned: {data}")
+            raise RuntimeError(
+                f"Jira create issue succeeded but no key returned: {data}"
+            )
         return str(key)
-
 
     @staticmethod
     def _plain_text_to_adf(text: str) -> dict[str, Any]:
@@ -579,7 +615,7 @@ class SharedBillsTaskCreator:
             month.start_date, month.end_date_exclusive
         )
 
-        results : list[SureTransaction] = []
+        results: list[SureTransaction] = []
 
         for transaction in tqdm(transactions, desc="Listing transactions", unit="tx"):
             category_name = SureTransaction.resolve_category_name(transaction)
@@ -603,7 +639,6 @@ class SharedBillsTaskCreator:
                 results.append(transaction)
 
         return results
-                
 
     def create_jira_task(self, result: BillingResult) -> str:
         """
@@ -616,9 +651,7 @@ class SharedBillsTaskCreator:
             The key of the created Jira issue, or "DRY_RUN" if in dry-run mode.
         """
         currency_symbol = self._config.currency_symbol
-        summary = (
-            f"Pay shared bills for {result.month_label}: {currency_symbol}{result.half_total}"
-        )
+        summary = f"Pay shared bills for {result.month_label}: {currency_symbol}{result.half_total}"
         description = (
             f"Calculated from our budgeting app for {result.month_label}.\n\n"
             f"Total (expenses): {currency_symbol}{result.total_expenses}\n"
@@ -647,16 +680,25 @@ class SharedBillsTaskCreator:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 class ArgsType(argparse.Namespace):
+    """
+    Type for CLI arguments.
+    """
     action: str
     month: str | None
     dry_run: bool
     include_income: bool
     log_level: str
 
+
 class Actions(enum.Enum):
+    """
+    Available CLI actions.
+    """
     CREATE_ISSUE = "notify"
     LIST_TRANSACTIONS = "list"
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """
@@ -730,22 +772,19 @@ def main(argv: list[str] | None = None) -> int:
             if not 1 <= month <= 12:
                 raise ValueError("month must be between 1 and 12")
         except Exception as exc:
-            LOGGER.error(
-                "Invalid --month %r (expected YYYY-MM): %s", args.month, exc
-            )
+            LOGGER.error("Invalid --month %r (expected YYYY-MM): %s", args.month, exc)
             return 2
     else:
         year, month = previous_month_in_tz(tz)
 
     mrange = month_range_for(year, month)
-
     sure = SureClient(
         base_url=str(cfg.sure_base_url),
         token=cfg.sure_api_token.get_secret_value(),
         auth_header=cfg.sure_auth_header,
         auth_prefix=cfg.sure_auth_prefix,
     )
-        
+
     jira = JiraClient(
         base_url=str(cfg.jira_base_url),
         encoded_credentials=cfg.jira_encoded_credentials.get_secret_value(),
@@ -758,7 +797,7 @@ def main(argv: list[str] | None = None) -> int:
         for transaction in transactions:
             print(transaction)
         return 0
-    
+
     result = runner.compute_shared_bills(mrange)
 
     sym = cfg.currency_symbol
