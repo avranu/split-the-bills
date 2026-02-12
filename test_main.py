@@ -2,7 +2,6 @@
 """Unit tests for shared_bills.py."""
 
 from __future__ import annotations
-
 import datetime as dt
 from decimal import Decimal
 from typing import Any
@@ -179,6 +178,9 @@ def _make_config(**overrides: Any) -> AppConfig:
         "jira_project_key": "TEST",
         "jira_assignee_account_id": "abc123",
         "dry_run": False,
+        "include_income": False,
+        "excluded_category_names": ["Personal Expenses"],
+        "paid_by_partner_tag": "Paid by partner",
     }
     defaults.update(overrides)
     return AppConfig(**defaults)
@@ -203,6 +205,58 @@ class TestSharedBillsTaskCreator:
         assert result.half_total == Decimal("75.00")
         assert result.included_count == 2
         assert result.excluded_count == 0
+        assert result.paid_by_other_total == Decimal("0.00")
+        assert result.paid_by_other_count == 0
+
+    def test_paid_by_other_partner_tag_adjusts_half_owed(self) -> None:
+        tag_name = "Paid by partner"
+        txs = [
+            SureTransaction(id="1", classification="expense", amount="$2000.00"),
+            SureTransaction(
+                id="2",
+                classification="expense",
+                amount="$800.00",
+                tags=[tag_name],
+            ),
+        ]
+        provider = FakeTransactionProvider(txs)
+        tracker = FakeIssueTracker()
+        cfg = _make_config()
+        creator = SharedBillsTaskCreator(provider, tracker, cfg)
+        result = creator.compute_shared_bills(month_range_for(2026, 1))
+
+        assert result.total_expenses == Decimal("2800.00")
+        assert result.paid_by_other_total == Decimal("800.00")
+        assert result.paid_by_other_count == 1
+        assert result.half_total == Decimal("600.00")
+
+    def test_paid_by_partner_tag_adjusts_half_owed_multiple(self) -> None:
+        tag_name = "Paid by partner"
+        txs = [
+            SureTransaction(id="1", classification="expense", amount="$2000.00"),
+            SureTransaction(
+                id="2",
+                classification="expense",
+                amount="$800.00",
+                tags=[tag_name],
+            ),
+            SureTransaction(
+                id="3",
+                classification="expense",
+                amount="$1000.00",
+                tags=[tag_name],
+            ),
+        ]
+        provider = FakeTransactionProvider(txs)
+        tracker = FakeIssueTracker()
+        cfg = _make_config()
+        creator = SharedBillsTaskCreator(provider, tracker, cfg)
+        result = creator.compute_shared_bills(month_range_for(2026, 1))
+
+        assert result.total_expenses == Decimal("3800.00")
+        assert result.paid_by_other_total == Decimal("1800.00")
+        assert result.paid_by_other_count == 2
+        assert result.half_total == Decimal("100.00")
 
     def test_excludes_personal_expenses(self) -> None:
         txs = [
@@ -295,9 +349,11 @@ class TestSharedBillsTaskCreator:
         billing = BillingResult(
             month_label="January 2026",
             total_expenses=Decimal("200.00"),
+            paid_by_other_total=Decimal("0.00"),
             half_total=Decimal("100.00"),
             excluded_count=1,
             included_count=3,
+            paid_by_other_count=0,
         )
         key = creator.create_jira_task(billing)
 
@@ -316,9 +372,11 @@ class TestSharedBillsTaskCreator:
         billing = BillingResult(
             month_label="January 2026",
             total_expenses=Decimal("200.00"),
+            paid_by_other_total=Decimal("0.00"),
             half_total=Decimal("100.00"),
             excluded_count=0,
             included_count=2,
+            paid_by_other_count=0,
         )
         key = creator.create_jira_task(billing)
 
@@ -336,3 +394,5 @@ class TestSharedBillsTaskCreator:
         assert result.half_total == Decimal("0.00")
         assert result.included_count == 0
         assert result.excluded_count == 0
+        assert result.paid_by_other_total == Decimal("0.00")
+        assert result.paid_by_other_count == 0

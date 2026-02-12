@@ -4,7 +4,7 @@
 Flow:
     1. Fetch transactions from Sure for a given month.
     2. Exclude transactions within given categories.
-    3. Sum expenses and compute half.
+    3. Sum expenses, then adjust half owed for expenses fully paid by the other partner.
     4. Create a Jira Task assigned to a specific user
 """
 
@@ -83,6 +83,10 @@ class AppConfig(BaseModel):
     currency_symbol: str = Field(
         default="$", description="Currency symbol used in the Jira title."
     )
+    paid_by_partner_tag: str = Field(
+        default="Paid by partner",
+        description="Tag name indicating a shared expense fully paid by the other partner.",
+    )
 
 
 def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
@@ -117,6 +121,9 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "include_income": include_income_env,
         "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
+        "paid_by_partner_tag": os.environ.get(
+            "PAID_BY_PARTNER_TAG", "Paid by partner"
+        ),
     }
     return AppConfig(**data)
 
@@ -159,6 +166,7 @@ class SureTransaction(BaseModel):
     category: dict[str, Any] | None = None
     category_name: str | None = None
     category_id: str | None = None
+    tags: list[Any] | None = None
 
     def __str__(self) -> str:
         cat = f" in {self.category['name']}" if self.category else ""
@@ -181,6 +189,22 @@ class SureTransaction(BaseModel):
             return transaction.category.get("name")
         return None
 
+    @staticmethod
+    def has_tag(transaction: "SureTransaction", tag_name: str) -> bool:
+        """Check whether a transaction has a given tag name."""
+        normalized_target = tag_name.strip().lower()
+        if not normalized_target or not transaction.tags:
+            return False
+
+        for tag in transaction.tags:
+            if isinstance(tag, str) and tag.strip().lower() == normalized_target:
+                return True
+            if isinstance(tag, dict):
+                candidate = str(tag.get("name", "")).strip().lower() # pyright: ignore (unkown type is converted to str)
+                if candidate == normalized_target:
+                    return True
+        return False
+
 
 class SureTransactionsResponse(BaseModel):
     """Wrapper for paginated Sure transaction responses."""
@@ -196,9 +220,11 @@ class BillingResult:
 
     month_label: str
     total_expenses: Decimal
+    paid_by_other_total: Decimal
     half_total: Decimal
     excluded_count: int
     included_count: int
+    paid_by_other_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +585,7 @@ class SharedBillsTaskCreator:
             month: The MonthRange for which to compute the bills.
 
         Returns:
-            A BillingResult containing the total expenses, half total, and counts of included/excluded transactions.
+            A BillingResult containing total expenses, fully-paid-by-other adjustments, final half total, and transaction counts.
         """
         transactions = self._transactions.list_transactions(
             month.start_date, month.end_date_exclusive
@@ -568,6 +594,8 @@ class SharedBillsTaskCreator:
         excluded = 0
         included = 0
         total = Decimal("0")
+        paid_by_other_total = Decimal("0")
+        paid_by_other_count = 0
 
         for transaction in tqdm(transactions, desc="Summing transactions", unit="tx"):
             category_name = SureTransaction.resolve_category_name(transaction)
@@ -591,17 +619,26 @@ class SharedBillsTaskCreator:
             if classification in {"expense", ""}:
                 total += amount_abs
                 included += 1
+                if SureTransaction.has_tag(
+                    transaction, self._config.paid_by_partner_tag
+                ):
+                    paid_by_other_total += amount_abs
+                    paid_by_other_count += 1
             elif self._config.include_income and classification == "income":
                 total += amount_abs
                 included += 1
 
-        half = (total / Decimal("2")).quantize(Decimal("0.01"))
+        half = ((total / Decimal("2")) - paid_by_other_total).quantize(
+            Decimal("0.01")
+        )
         return BillingResult(
             month_label=month.label,
             total_expenses=total.quantize(Decimal("0.01")),
+            paid_by_other_total=paid_by_other_total.quantize(Decimal("0.01")),
             half_total=half,
             excluded_count=excluded,
             included_count=included,
+            paid_by_other_count=paid_by_other_count,
         )
 
     def list_transactions(self, month: MonthRange) -> list[SureTransaction]:
@@ -656,9 +693,10 @@ class SharedBillsTaskCreator:
         currency_symbol = self._config.currency_symbol
         summary = f"Pay shared bills for {result.month_label}: {currency_symbol}{result.half_total}"
         description = (
-            f"Calculated from our budgeting app for {result.month_label}.\n\n"
-            f"Total (expenses): {currency_symbol}{result.total_expenses}\n"
-            f"Half: {currency_symbol}{result.half_total}\n"
+            f"Calculated for {result.month_label}.\n\n"
+            f"Total: {currency_symbol}{result.total_expenses}\n"
+            f"Fully paid: {currency_symbol}{result.paid_by_other_total} across {result.paid_by_other_count} transactions\n"
+            f"Remaining Half: {currency_symbol}{result.half_total}\n"
             f"Excluded categories: {', '.join(self._config.excluded_category_names)}\n"
             f"Transactions: {result.included_count} included / {result.excluded_count} excluded\n"
         )
@@ -805,10 +843,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sym = cfg.currency_symbol
     LOGGER.info(
-        "Month=%s total=%s%s half=%s%s excluded=%d included=%d",
+        "Month=%s total=%s%s paid_by_other=%s%s half=%s%s excluded=%d included=%d",
         result.month_label,
         sym,
         result.total_expenses,
+        sym,
+        result.paid_by_other_total,
         sym,
         result.half_total,
         result.excluded_count,
