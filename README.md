@@ -6,6 +6,8 @@ A script to automate splitting monthly bills between two partners. Makes use of 
     * gh repo clone avranu/split-the-bills && cd split-the-bills
 * Create a virtual environment and activate it
     * uv venv .venv && source .venv/bin/activate
+* Copy .env-sample to .env and fill in the required values
+    * cp .env-sample .env && vi .env
 * Run main.py
     * python main.py
 
