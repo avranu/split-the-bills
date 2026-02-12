@@ -83,7 +83,7 @@ class AppConfig(BaseModel):
     currency_symbol: str = Field(
         default="$", description="Currency symbol used in the Jira title."
     )
-    fully_paid_by_other_tag: str = Field(
+    paid_by_partner_tag: str = Field(
         default="Paid by partner",
         description="Tag name indicating a shared expense fully paid by the other partner.",
     )
@@ -121,8 +121,8 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "include_income": include_income_env,
         "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
-        "fully_paid_by_other_tag": os.environ.get(
-            "FULLY_PAID_BY_OTHER_TAG", "Paid by partner"
+        "paid_by_partner_tag": os.environ.get(
+            "PAID_BY_PARTNER_TAG", "Paid by partner"
         ),
     }
     return AppConfig(**data)
@@ -620,7 +620,7 @@ class SharedBillsTaskCreator:
                 total += amount_abs
                 included += 1
                 if SureTransaction.has_tag(
-                    transaction, self._config.fully_paid_by_other_tag
+                    transaction, self._config.paid_by_partner_tag
                 ):
                     paid_by_other_total += amount_abs
                     paid_by_other_count += 1

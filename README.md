@@ -130,17 +130,17 @@ Then set environment variables (or export them in your shell / secret manager).
 
 ### Optional variables
 
-| Variable                  | Default             | Description                                 |
-| ------------------------- | ------------------- | ------------------------------------------- |
-| `SURE_AUTH_HEADER`        | `Authorization`     | Sure auth header name                       |
-| `SURE_AUTH_PREFIX`        | `Bearer`            | Sure auth token prefix                      |
-| `JIRA_ISSUE_TYPE`         | `Task`              | Jira issue type                             |
-| `APP_TIMEZONE`            | `America/New_York`  | IANA timezone name                          |
-| `EXCLUDED_CATEGORY_NAMES` | `Personal Expenses` | Comma-separated category names to exclude   |
-| `INCLUDE_INCOME`          | `false`             | Include income transactions in the total    |
-| `DRY_RUN`                 | `false`             | Compute values but skip Jira issue creation |
-| `CURRENCY_SYMBOL`         | `$`                 | Symbol used in Jira summary/description     |
-| `FULLY_PAID_BY_OTHER_TAG` | `Paid by other partner` | Tag name used to mark expenses fully paid by the other partner |
+| Variable                  | Default             | Description                                       |
+| ------------------------- | ------------------- | ------------------------------------------------- |
+| `SURE_AUTH_HEADER`        | `Authorization`     | Sure auth header name                             |
+| `SURE_AUTH_PREFIX`        | `Bearer`            | Sure auth token prefix                            |
+| `JIRA_ISSUE_TYPE`         | `Task`              | Jira issue type                                   |
+| `APP_TIMEZONE`            | `America/New_York`  | IANA timezone name                                |
+| `EXCLUDED_CATEGORY_NAMES` | `Personal Expenses` | Comma-separated category names to exclude         |
+| `INCLUDE_INCOME`          | `false`             | Include income transactions in the total          |
+| `DRY_RUN`                 | `false`             | Compute values but skip Jira issue creation       |
+| `CURRENCY_SYMBOL`         | `$`                 | Symbol used in Jira summary/description           |
+| `PAID_BY_PARTNER_TAG`     | `Paid by partner`   | Tag name marks expenses fully paid by the partner |
 
 > Note: The code reads `EXCLUDED_CATEGORY_NAMES` (plural, comma-separated).
 
