@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 import requests
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, ValidationError
 from tqdm import tqdm
+from dotenv import load_dotenv
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +37,7 @@ class AppConfig(BaseModel):
     """Application configuration loaded from environment variables."""
 
     # Sure
-    sure_base_url: HttpUrl = Field(
-        ..., description="Base URL for Sure, e.g. https://sure.example.com"
-    )
+    sure_base_url: HttpUrl = Field(..., description="Base URL for Sure, e.g. https://sure.example.com")
     sure_api_token: SecretStr = Field(..., description="Sure API token/key")
     sure_auth_header: str = Field(
         default="Authorization",
@@ -50,18 +49,12 @@ class AppConfig(BaseModel):
     )
 
     # Jira
-    jira_base_url: HttpUrl = Field(
-        ..., description="Jira base URL, e.g. https://your-org.atlassian.net"
-    )
+    jira_base_url: HttpUrl = Field(..., description="Jira base URL, e.g. https://your-org.atlassian.net")
     jira_email: str = Field(..., description="Jira user email for API access")
     jira_api_token: SecretStr = Field(..., description="Jira API token")
-    jira_encoded_credentials: SecretStr = Field(
-        ..., description="Base64-encoded Jira credentials (email:token)"
-    )
+    jira_encoded_credentials: SecretStr = Field(..., description="Base64-encoded Jira credentials (email:token)")
     jira_project_key: str = Field(..., description="Jira project key, e.g. HLAB")
-    jira_issue_type: str = Field(
-        default="Task", description='Issue type name, default "Task"'
-    )
+    jira_issue_type: str = Field(default="Task", description='Issue type name, default "Task"')
     jira_assignee_account_id: str = Field(
         ...,
         description="Jira accountId for the assignee. Find it here: https://yourdomain.atlassian.net/rest/api/3/user/assignable/search?project=PROJECTKEY&query=username",
@@ -77,12 +70,8 @@ class AppConfig(BaseModel):
         default=False,
         description="If true, include income transactions in total.",
     )
-    dry_run: bool = Field(
-        default=False, description="If true, do not create Jira issue."
-    )
-    currency_symbol: str = Field(
-        default="$", description="Currency symbol used in the Jira title."
-    )
+    dry_run: bool = Field(default=False, description="If true, do not create Jira issue.")
+    currency_symbol: str = Field(default="$", description="Currency symbol used in the Jira title.")
     paid_by_partner_tag: str = Field(
         default="Paid by partner",
         description="Tag name indicating a shared expense fully paid by the other partner.",
@@ -92,15 +81,9 @@ class AppConfig(BaseModel):
 def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
     """Load configuration from environment variables."""
     yes_options = {"1", "true", "yes", "y"}
-    include_income_env = (
-        os.environ.get("INCLUDE_INCOME", "false").strip().lower() in yes_options
-    )
-    dry_run_env = dry_run or (
-        os.environ.get("DRY_RUN", "false").strip().lower() in yes_options
-    )
-    excluded_categories_env = os.environ.get(
-        "EXCLUDED_CATEGORY_NAMES", "Personal Expenses"
-    )
+    include_income_env = os.environ.get("INCLUDE_INCOME", "false").strip().lower() in yes_options
+    dry_run_env = dry_run or (os.environ.get("DRY_RUN", "false").strip().lower() in yes_options)
+    excluded_categories_env = os.environ.get("EXCLUDED_CATEGORY_NAMES", "Personal Expenses")
 
     data: dict[str, Any] = {
         "sure_base_url": os.environ.get("SURE_BASE_URL", ""),
@@ -115,15 +98,11 @@ def load_config_from_env(*, dry_run: bool = False) -> AppConfig:
         "jira_issue_type": os.environ.get("JIRA_ISSUE_TYPE", "Task"),
         "jira_assignee_account_id": os.environ.get("JIRA_ASSIGNEE_ACCOUNT_ID", ""),
         "timezone": os.environ.get("APP_TIMEZONE", "America/New_York"),
-        "excluded_category_names": [
-            x.strip() for x in excluded_categories_env.split(",")
-        ],
+        "excluded_category_names": [x.strip() for x in excluded_categories_env.split(",")],
         "include_income": include_income_env,
         "dry_run": dry_run_env,
         "currency_symbol": os.environ.get("CURRENCY_SYMBOL", "$"),
-        "paid_by_partner_tag": os.environ.get(
-            "PAID_BY_PARTNER_TAG", "Paid by partner"
-        ),
+        "paid_by_partner_tag": os.environ.get("PAID_BY_PARTNER_TAG", "Paid by partner"),
     }
     return AppConfig(**data)
 
@@ -200,7 +179,7 @@ class SureTransaction(BaseModel):
             if isinstance(tag, str) and tag.strip().lower() == normalized_target:
                 return True
             if isinstance(tag, dict):
-                candidate = str(tag.get("name", "")).strip().lower() # pyright: ignore (unkown type is converted to str)
+                candidate = str(tag.get("name", "")).strip().lower()  # pyright: ignore (unkown type is converted to str)
                 if candidate == normalized_target:
                     return True
         return False
@@ -294,9 +273,7 @@ def month_range_for(year: int, month: int) -> MonthRange:
     """
     start = dt.date(year, month, 1)
     next_month = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
-    return MonthRange(
-        start_date=start, end_date_inclusive=next_month - dt.timedelta(days=1)
-    )
+    return MonthRange(start_date=start, end_date_inclusive=next_month - dt.timedelta(days=1))
 
 
 def previous_month_in_tz(tz: ZoneInfo) -> tuple[int, int]:
@@ -364,9 +341,7 @@ class SureClient(TransactionProvider):
         self._base_url = base_url.rstrip("/")
         self._session = requests.Session()
         header_value = f"{auth_prefix} {token}".strip()
-        self._session.headers.update(
-            {"Accept": "application/json", auth_header: header_value}
-        )
+        self._session.headers.update({"Accept": "application/json", auth_header: header_value})
 
     def list_transactions(
         self,
@@ -397,9 +372,7 @@ class SureClient(TransactionProvider):
 
         # 2025-02-11: requesting page_size 200 causes unexpected behavior and only 25 items are returned.
         if page_size > 25:
-            LOGGER.warning(
-                "Sure API may have a max page size of 25. Requested %d.", page_size
-            )
+            LOGGER.warning("Sure API may have a max page size of 25. Requested %d.", page_size)
 
         for page in tqdm(
             range(1, max_pages + 1),
@@ -424,17 +397,16 @@ class SureClient(TransactionProvider):
                 if isinstance(payload, list):
                     parsed = SureTransactionsResponse(
                         transactions=[
-                            SureTransaction(**t) for t in payload # pyright: ignore
-                        ]  
+                            SureTransaction(**t)
+                            for t in payload  # pyright: ignore
+                        ]
                     )
                     # TODO: Temporarily ignore type issue. In the future, validate/enforce payload type
                 else:
                     raise
 
             if not parsed.transactions:
-                LOGGER.debug(
-                    "No transactions found on page %d, stopping pagination.", page
-                )
+                LOGGER.debug("No transactions found on page %d, stopping pagination.", page)
                 break
 
             transactions.extend(parsed.transactions)
@@ -529,9 +501,7 @@ class JiraClient(IssueTracker):
         data = response.json()
         key = data.get("key")
         if not key:
-            raise RuntimeError(
-                f"Jira create issue succeeded but no key returned: {data}"
-            )
+            raise RuntimeError(f"Jira create issue succeeded but no key returned: {data}")
         return str(key)
 
     @staticmethod
@@ -587,9 +557,7 @@ class SharedBillsTaskCreator:
         Returns:
             A BillingResult containing total expenses, fully-paid-by-other adjustments, final half total, and transaction counts.
         """
-        transactions = self._transactions.list_transactions(
-            month.start_date, month.end_date_exclusive
-        )
+        transactions = self._transactions.list_transactions(month.start_date, month.end_date_exclusive)
 
         excluded = 0
         included = 0
@@ -619,18 +587,14 @@ class SharedBillsTaskCreator:
             if classification in {"expense", ""}:
                 total += amount_abs
                 included += 1
-                if SureTransaction.has_tag(
-                    transaction, self._config.paid_by_partner_tag
-                ):
+                if SureTransaction.has_tag(transaction, self._config.paid_by_partner_tag):
                     paid_by_other_total += amount_abs
                     paid_by_other_count += 1
             elif self._config.include_income and classification == "income":
                 total += amount_abs
                 included += 1
 
-        half = ((total / Decimal("2")) - paid_by_other_total).quantize(
-            Decimal("0.01")
-        )
+        half = ((total / Decimal("2")) - paid_by_other_total).quantize(Decimal("0.01"))
         return BillingResult(
             month_label=month.label,
             total_expenses=total.quantize(Decimal("0.01")),
@@ -651,9 +615,7 @@ class SharedBillsTaskCreator:
         Returns:
             A list of SureTransaction objects for the specified month, excluding only those that match the excluded categories.
         """
-        transactions = self._transactions.list_transactions(
-            month.start_date, month.end_date_exclusive
-        )
+        transactions = self._transactions.list_transactions(month.start_date, month.end_date_exclusive)
 
         results: list[SureTransaction] = []
 
@@ -726,6 +688,7 @@ class ArgsType(argparse.Namespace):
     """
     Type for CLI arguments.
     """
+
     action: str
     month: str | None
     dry_run: bool
@@ -737,6 +700,7 @@ class Actions(enum.Enum):
     """
     Available CLI actions.
     """
+
     CREATE_ISSUE = "notify"
     LIST_TRANSACTIONS = "list"
 
@@ -748,9 +712,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     Returns:
         An argparse.ArgumentParser instance configured with the expected command-line arguments.
     """
-    parser = argparse.ArgumentParser(
-        description="Create monthly shared-bills Jira task from Sure."
-    )
+    parser = argparse.ArgumentParser(description="Create monthly shared-bills Jira task from Sure.")
     parser.add_argument(
         "--action",
         type=str,
@@ -783,6 +745,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point."""
+    load_dotenv()
+
     parser = build_arg_parser()
     args = parser.parse_args(argv, namespace=ArgsType())
 
@@ -830,9 +794,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=str(cfg.jira_base_url),
         encoded_credentials=cfg.jira_encoded_credentials.get_secret_value(),
     )
-    runner = SharedBillsTaskCreator(
-        transaction_provider=sure, issue_tracker=jira, config=cfg
-    )
+    runner = SharedBillsTaskCreator(transaction_provider=sure, issue_tracker=jira, config=cfg)
     if args.action == Actions.LIST_TRANSACTIONS.value:
         transactions = runner.list_transactions(mrange)
         for transaction in transactions:
